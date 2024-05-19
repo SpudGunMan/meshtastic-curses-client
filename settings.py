@@ -347,7 +347,7 @@ def generate_menu_from_protobuf(message_instance, interface):
     return menu
 
 
-def change_setting(stdscr, interface, menu_path):
+def change_setting(stdscr, interface, menu_path, channel_number = None):
     node = interface.localNode
     field_descriptor = None
     setting_value = 0
@@ -389,13 +389,11 @@ def change_setting(stdscr, interface, menu_path):
         menu_path.pop()
         return
 
-    if menu_path[1] == "Channels":
-        return
     #         n = interface.getChannelByChannelIndex()
     #         setting_string = getattr(getattr(n.channelSettings, str(menu_path[2])), menu_path[3])
     #         field_descriptor = getattr(n.channelSettings, menu_path[2]).DESCRIPTOR.fields_by_name[menu_path[3]]
-
-
+    if channel_number is not None:
+        channel = interface.localNode.getChannelByChannelIndex(int(channel_number))
 
     if len(menu_path) == 4:
         if menu_path[1] == "Radio Settings":
@@ -406,6 +404,10 @@ def change_setting(stdscr, interface, menu_path):
             setting_string = getattr(getattr(node.moduleConfig, str(menu_path[2])), menu_path[3])
             field_descriptor = getattr(node.moduleConfig, menu_path[2]).DESCRIPTOR.fields_by_name[menu_path[3]]
 
+        elif menu_path[1] == "Channels":
+            setting_string = getattr(channel.settings, menu_path[3])
+            field_descriptor = channel.settings.DESCRIPTOR.fields_by_name[menu_path[3]]
+
 
     elif len(menu_path) == 5:
         if menu_path[1] == "Radio Settings":
@@ -415,6 +417,10 @@ def change_setting(stdscr, interface, menu_path):
         elif menu_path[1] == "Module Settings":
             setting_string = getattr(getattr(getattr(node.moduleConfig, str(menu_path[2])), menu_path[3]), menu_path[4])
             field_descriptor = getattr(getattr(node.moduleConfig, menu_path[2]), menu_path[3]).DESCRIPTOR.fields_by_name[menu_path[4]]
+
+        elif menu_path[1] == "Channels":
+            setting_string = getattr(getattr(channel.settings, menu_path[3]), menu_path[4])
+            field_descriptor = getattr(channel.settings, menu_path[3]).DESCRIPTOR.fields_by_name[menu_path[4]]
 
 
     if field_descriptor.enum_type is not None:
@@ -474,12 +480,22 @@ def change_setting(stdscr, interface, menu_path):
                 setattr(getattr(ourNode.localConfig, menu_path[2]), menu_path[3], setting_value_int)
             elif menu_path[1] == "Module Settings":
                 setattr(getattr(ourNode.moduleConfig, menu_path[2]), menu_path[3], setting_value_int)
+            elif menu_path[1] == "Channels":
+
+                setattr(getattr(ourNode.channel, menu_path[3]), setting_value_int)
+                ourNode.writeChannel(channel_number)
+                menu_path.pop()
+                return
+
 
         elif len(menu_path) == 5:
             if menu_path[1] == "Radio Settings":
                 setattr(getattr(getattr(ourNode.localConfig, menu_path[2]), menu_path[3]), menu_path[4], setting_value_int)
             elif menu_path[1] == "Module Settings":
                 setattr(getattr(getattr(ourNode.moduleConfig, menu_path[2]), menu_path[3]), menu_path[4], setting_value_int)
+            elif menu_path[1] == "Channels":
+                pass
+
 
     except AttributeError as e:
         print("Error setting attribute:", e)
@@ -493,8 +509,13 @@ def snake_to_camel(snake_str):
     return components[0] + ''.join(x.title() for x in components[1:])
 
 
-def display_values(stdscr, interface, key_list, menu_path):
+def display_values(stdscr, interface, key_list, menu_path, channel_number = None):
     node = interface.localNode
+    if channel_number is not None:
+        channel = interface.localNode.getChannelByChannelIndex(int(channel_number))
+
+
+
     user_settings = ["long_name", "short_name", "is_licensed"]
     for i, key in enumerate(key_list):
 
@@ -513,6 +534,8 @@ def display_values(stdscr, interface, key_list, menu_path):
                 setting = getattr(getattr(node.localConfig, menu_path[2]), key_list[i])  
             if menu_path[1] == "Module Settings":
                 setting = getattr(getattr(node.moduleConfig, menu_path[2]), key_list[i])
+            if menu_path[1] == "Channels":
+                setting = getattr(channel.settings, key_list[i])
             stdscr.addstr(i+3, 40, str(setting)[:14])
 
         if len(menu_path) == 4:
@@ -520,6 +543,8 @@ def display_values(stdscr, interface, key_list, menu_path):
                 setting = getattr(getattr(getattr(node.localConfig, menu_path[2]), menu_path[3]), key_list[i])  
             if menu_path[1] == "Module Settings":
                 setting = getattr(getattr(getattr(node.moduleConfig, menu_path[2]), menu_path[3]), key_list[i])
+            if menu_path[1] == "Channels":
+                setting = getattr(getattr(channel.settings, menu_path[3]), key_list[i])  
             stdscr.addstr(i+3, 40, str(setting)[:14])
         
     stdscr.refresh()
@@ -534,22 +559,25 @@ def menu_header(window, text, start_y=1):
     window.addstr(start_y, start_x, formatted_text)
     window.refresh()
 
-def nested_menu(stdscr, menu, interface):
+def nested_menu(stdscr, menu, interface, channel_num=None):
     menu_item = 0
     current_menu = menu
     prev_menu = []
-    menu_index = 0
     next_key = None
 
     key_list = []
-    menu_path = ["Main Menu"]
+    if channel_num is not None:
+        menu_path = ["Main Menu", "Channels", f"Channel {channel_num}"]
+    else:
+        menu_path = ["Main Menu"]
 
-    last_menu_level = False
+    last_menu_level = True
 
     while True:
         
         if current_menu is not None:
-            menu_header(stdscr, f"{menu_path[menu_index]}")
+
+            menu_header(stdscr, f"{menu_path[-1]}")
 
             # Display current menu
             for i, key in enumerate(current_menu.keys(), start=0):
@@ -562,7 +590,7 @@ def nested_menu(stdscr, menu, interface):
                     stdscr.addstr(i+3, 1, key)
 
             # Display current values
-            display_values(stdscr, interface, key_list, menu_path)
+            display_values(stdscr, interface, key_list, menu_path, channel_num)
 
             char = stdscr.getch()
 
@@ -584,6 +612,7 @@ def nested_menu(stdscr, menu, interface):
                 #     settings_region(interface)
                 #     break
                 if selected_key == "Channels":
+                    menu_path.append(selected_key)
                     channels_editor(interface, stdscr)
                 elif selected_key not in ["Reboot", "Reset NodeDB", "Shutdown", "Factory Reset"]:
                     menu_path.append(selected_key)
@@ -591,7 +620,6 @@ def nested_menu(stdscr, menu, interface):
                     if isinstance(selected_value, dict):
                         # If the selected item is a submenu, navigate to it
                         prev_menu.append(current_menu)
-                        menu_index += 1
                         current_menu = selected_value
                         menu_item = 0
                         last_menu_level = False
@@ -604,15 +632,16 @@ def nested_menu(stdscr, menu, interface):
                     last_menu_level = False
                 if len(menu_path) > 1:
                     menu_path.pop()
-                    current_menu = prev_menu[menu_index-1]
-                    del prev_menu[menu_index-1]
-                    menu_index -= 1
+                    if prev_menu == []:
+                        break
+                    current_menu = prev_menu[-1]
+                    del prev_menu[-1]
                     menu_item = 0
 
             elif char == ord('\n'):
                 if selected_key == "Channels":
                     channels_editor(interface, stdscr)
-                if selected_key == "Reboot":
+                elif selected_key == "Reboot":
                     settings_reboot(interface)
                 elif selected_key == "Reset NodeDB":
                     settings_reset_nodedb(interface)
@@ -624,6 +653,7 @@ def nested_menu(stdscr, menu, interface):
                 elif selected_value is not None:
                     stdscr.refresh()
                     stdscr.getch()
+
                  
             elif char == 27:  # escape to exit menu 
                 break
@@ -638,9 +668,10 @@ def nested_menu(stdscr, menu, interface):
         else:
             break  # Exit loop if current_menu is None
 
+
         if last_menu_level == True:
             if not isinstance(current_menu.get(next_key), dict):
-                change_setting(stdscr, interface, menu_path)
+                change_setting(stdscr, interface, menu_path, channel_num)
 
 
 def settings(stdscr, interface):
@@ -667,11 +698,8 @@ def settings(stdscr, interface):
     user_config = generate_menu_from_protobuf(user, interface)
     user_config = {key: value for key, value in user_config.items() if key in user_settings}
 
-    channel = channel_pb2.ChannelSettings()
-    channel_config = generate_menu_from_protobuf(channel, interface)
-    channel_config = [channel_config.copy() for i in range(8)]
-
-
+  
+  
     radio = config_pb2.Config()
     radio_config = generate_menu_from_protobuf(radio, interface)
 
@@ -697,12 +725,6 @@ def settings(stdscr, interface):
     popup_win.clear()
     popup_win.refresh()
 
-# def settings_region(interface):
-#     selected_option, do_set = set_region(interface)
-#     if do_set:
-#         ourNode = interface.localNode
-#         setattr(ourNode.localConfig.lora, "region", selected_option)
-#         ourNode.writeConfig("lora")
 
 def settings_reboot(interface):
     interface.localNode.reboot()
@@ -764,6 +786,8 @@ def channels_editor(interface, stdscr):
 
         key = stdscr.getch()
 
+        selected_channel = channels[menu_item]
+
         if key == curses.KEY_DOWN:
             menu_item = min(len(channels) - 1, menu_item + 1)
         elif key == curses.KEY_UP:
@@ -771,15 +795,18 @@ def channels_editor(interface, stdscr):
         elif key == ord('\n'):
             # Handle selection action
             selected_channel = channels[menu_item]
+            channel = channel_pb2.ChannelSettings()
+            channel_config = generate_menu_from_protobuf(channel, interface)
+
+            nested_menu(stdscr, channel_config, interface, selected_channel)
+                    
             # Perform action here, if needed
         elif key == 27 or key == curses.KEY_LEFT: # escape to exit menu
             break
-
-        selected_channel = channels[menu_item]
-
-    return selected_channel
-
-
+        
+        if key:
+            stdscr.clear()
+            stdscr.border()
 
 
 
